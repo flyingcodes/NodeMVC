@@ -1,0 +1,7 @@
+/**/*.exe
+/.idea
+*.exe
+/node_modules/
+/x..typings/
+
+

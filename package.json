@@ -1,0 +1,23 @@
+{
+  "name": "mvc",
+  "version": "1.0.0",
+  "description": "a MVC framework for koa.",
+  "main": "mvc.js",
+  "scripts": {
+    "test": "test mvc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/git/mvc.git"
+  },
+  "keywords": [
+    "mvc",
+    "koa"
+  ],
+  "author": "flyingcode",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/git/mvc/issues"
+  },
+  "homepage": "https://github.com/git/mvc#readme"
+}

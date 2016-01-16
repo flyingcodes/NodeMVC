@@ -5,6 +5,7 @@ NodeMVC, The MVC Framework in Node.js
 
 
 * Mark is optional
+(View this file or page with font family 'Consolas'.)
 
                              |
                              |

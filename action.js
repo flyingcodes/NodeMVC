@@ -77,7 +77,7 @@ class ViewResult extends ActionResult {
 		response.contentBody = writer.toString();
 	}
 	findView(context){ // context: ControllerContext
-		var view = this.viewName, result = this.engines.findView(context, view, this.layoutName);
+		var view = this.viewName, result = this.viewEngines.findView(context, view, this.layoutName);
 		if(result.view) return result.view;
 		throw new Error('Cannot find the view for "' + view + '":\r\n' + result.paths.join('\r\n'));
 	}
@@ -113,11 +113,11 @@ class ViewResult extends ActionResult {
 		}
 		this[_private].viewData = value;
 	}	
-	get engines(){ // ViewEngineCollection
-		return this[_private].engines || _view.ViewEngines.engines;
+	get viewEngines(){ // ViewEngineCollection
+		return this[_private].viewEngines || _view.ViewEngines.engines;
 	}
-	set engines(value){ // value: ViewEngineCollection
-		this[_private].engines = value;
+	set viewEngines(value){ // value: ViewEngineCollection
+		this[_private].viewEngines = value;
 	}
 }
 

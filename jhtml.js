@@ -10,11 +10,11 @@ var JHtmlCompiler = function(options) {
 	
 	var _options = options || {}, _output = _options.output; 
 	
-	var _content, _length, _index, _maxIndex, _level, _incode, _intag, _tags, _tokens, _codes;
+	var _content, _length, _index, _maxIndex, _level, _incode, _intag, _tags, _inherits, _layout, _tokens, _sections, _codes;
 	
 	
 	var _PLAIN_TEXT = 0, _SINGLE_LINE_COMMENT = 1, _MULTILINE_COMMENT = 2, _EXECUTE_BLOCK = 3, _OUTPUT_BLOCK = 4, 
-		_BINDING_CODE = 5, _DIRECTIVE_IF = 6, _DIRECTIVE_FOR = 7, _DIRECTIVE_WHILE = 8;
+		_BINDING_CODE = 5, _DIRECTIVE_INHERITS = 6, _DIRECTIVE_LAYOUT = 7, _DIRECTIVE_SECTION = 8, _DIRECTIVE_IF = 9, _DIRECTIVE_FOR = 10, _DIRECTIVE_WHILE = 11;
 	
 	var _CODE_WELL_END_CHAR = '\n'; // end code with '\n' or ';'
 	var _DIRECTIVE_NAME_MAX = 16, _DIRECTIVE_LETTER_MIN = 0x61, _DIRECTIVE_LETTER_MAX = 0x7a; // a-z : 0x61-0x7a
@@ -22,17 +22,20 @@ var JHtmlCompiler = function(options) {
 	var _COMPILE_CODE_JOINER = '\n'; // codes joiner while compile
 	var _stringEscape = String.escape, _isWhiteSpace = Char.isWhiteSpace, _arrayContains = Array.contains, _arrayPushs = Array.pushs;
 	
-	var _token = function(type, code) {
+	var _token = function(type, code, arg) {
 		// 0 = Plain Text
 		// 1 = Single Line Comment
 		// 2 = Multiline Comment
 		// 3 = Execute Block
 		// 4 = Output Block
 		// 5 = Binding Code
-		// 6 = Directive If
-		// 7 = Directive For
-		// 8 = Directive While 
-		return {type: type, code: code};
+		// 6 = Directive Inherits
+		// 7 = Directive Layout
+		// 8 = Directive Section
+		// 9 = Directive If
+		// 10 = Directive For
+		// 11 = Directive While 
+		return {type: type, code: code, arg: arg};
 	}
 
     var _readEscape = function(){
@@ -419,10 +422,10 @@ var JHtmlCompiler = function(options) {
 	
 	var _readDirectiveBlock = function(name, follow){
 		if(name == null) throw new Error("The directive name can not be null.");
-		if(_incode) throw new Error("The directive can not be declared in code.");
-		if(_intag != null) throw new Error("The directive can not be declared in html tag.");
+		if(_incode) throw new Error('The directive "' + name + '" can not be declared in code.');
+		if(_intag != null) throw new Error('The directive "' + name + '" can not be declared in html tag.');
 		var start = _index, index = start + name.length;
-		if(_content.substring(start, index) != name) throw new Error("The directive name \"" + name + "\" is expected.");
+		if(_content.substring(start, index) != name) throw new Error('The directive name "' + name + '" is expected.');
 		_index = index; // skip directive name
 		_skipWhiteSpaces('(');
 		_readCodeBlock('(', ')');
@@ -467,20 +470,61 @@ var JHtmlCompiler = function(options) {
 		_incode = incode, _intag = intag, _tags = tags;
 		if(token) _arrayPushs(tokens, token);
 		return tokens;
-	}
-	
+	}	
 	
 	var _readDirectiveIf = function() { // @if () { ... } else if () { ... } else {}
 		return _readDirectiveBlock("if", "else");
 	}
+	
 	var _readDirectiveFor = function() { // @for () { ... }
 		return _readDirectiveBlock("for");
 	}
+	
 	var _readDirectiveWhile = function() { // @while () { ... }
 		return _readDirectiveBlock("while");
 	}
 	
+	var _readDirectiveSection = function() { // @section name { ... }
+		var name = "section";
+		if(_level) throw new Error('The directive "' + name + '" must be declared in top level.');
+		if(_incode) throw new Error('The directive "' + name + '" can not be declared in code.');
+		if(_intag != null) throw new Error('The directive "' + name + '" can not be declared in html tag.');
+		var start = _index, index = start + name.length;
+		if(_content.substring(start, index) != name) throw new Error('The directive name "' + name + '" is expected.');
+		_index = index; // skip directive name
+		if(!_isWhiteSpace(_content.charCodeAt(_index))) throw new Error('A white space is expected.');
+		_skipWhiteSpaces();
+		name = _readIdentifier();
+		_skipWhiteSpaces('{');
+		var tokens = _readDirectiveBlockBody(_index), last = tokens[tokens.length - 1], code = last.code; // code of last is end with }
+		last.code = code.substring(0, code.length - 1); // remove the last }
+		return _token(_DIRECTIVE_SECTION, tokens, name);
+	}
 	
+	var _createCompileSection = function(token) {
+		var codes = _compileTokens(token.code);
+		return new _view.ViewCompileSection(token.arg, codes.join(_COMPILE_CODE_JOINER));
+	}
+	
+	var _readDirectiveInherits = function() { // @inherits namespace.type\n
+		// must be first
+	}
+	
+	var _readDirectiveLayout = function() { // @layout (...)
+		var name = "layout";
+		// must after @inherits and before other codes
+		if(_tokens.length && _tokens[0].type != _DIRECTIVE_INHERITS) throw new Error('The directive "' + name + '" must be after "inherits" and before other codes.');
+		if(_level) throw new Error('The directive "' + name + '" must be declared in top level.');
+		if(_incode) throw new Error('The directive "' + name + '" can not be declared in code.');
+		if(_intag != null) throw new Error('The directive "' + name + '" can not be declared in html tag.');
+		var start = _index, index = start + name.length;
+		if(_content.substring(start, index) != name) throw new Error('The directive name "' + name + '" is expected.');
+		_index = index; // skip directive name
+		_skipWhiteSpaces('(');
+		return _token(_DIRECTIVE_LAYOUT, _readCodeBlock('(', ')'));
+	}
+	
+
 	var _readIdentifier = function(){
 		if(_index >= _maxIndex) return '';
 		// starts with letter(a-z, A-Z), underline(_), dollar sign($)
@@ -545,6 +589,9 @@ var JHtmlCompiler = function(options) {
 			case 'if': return _readDirectiveIf();
 			case 'for': return _readDirectiveFor();
 			case 'while': return _readDirectiveWhile();
+			case 'section': return _readDirectiveSection();
+			case 'layout': return _readDirectiveLayout();
+			case 'inherits': return _readDirectiveInherits();
 		}
 		var binding = _readBinding();
 		if(!binding) throw new Error('A binding is expected.');
@@ -552,7 +599,8 @@ var JHtmlCompiler = function(options) {
 	}
 	
 	var _parseContent = function(content) {
-		_content = content || '', _length = _content.length, _index = 0, _maxIndex = _length - 1, _level = 0, _incode = false, _intag = null, _tags = [], _tokens = [], _codes = null;
+		_content = content || '', _length = _content.length, _index = 0, _maxIndex = _length - 1, _level = 0, _incode = false, _intag = null, _tags = [], 
+			_inherits = null, _layout = null, _tokens = [], _sections = [], _codes = null;
 		while(_index < _length) {
 			_arrayPushs(_tokens, _readToken());
 		}
@@ -572,9 +620,9 @@ var JHtmlCompiler = function(options) {
 	var _writeCode = function(code) {
 		return code;
 	}	
-	var _compileTokens = function(tokens) {
-		_codes = [];
-		if(!tokens) return _codes;
+	var _compileTokens = function(tokens, block) {
+		var codes = [];
+		if(!tokens) return codes;
 		var length = tokens.length, index = -1, token, code;
 		while(++index < length) {
 			if(!(token = tokens[index])) continue;
@@ -589,18 +637,35 @@ var JHtmlCompiler = function(options) {
 				case _DIRECTIVE_IF: code = _writeCode(token.code); break;
 				case _DIRECTIVE_FOR: code = _writeCode(token.code); break;
 				case _DIRECTIVE_WHILE: code = _writeCode(token.code); break;
+				case _DIRECTIVE_INHERITS: 
+					if(block) throw new Error('The inherits is invalid token in block.');
+					if(_inherits) throw new Error('The inherits is setted by another.');
+					_inherits = token.code;
+					continue;
+				case _DIRECTIVE_LAYOUT: 
+					if(block) throw new Error('The layout is invalid token in block.');
+					if(_layout) throw new Error('The layout is setted by another.');
+					_layout = token.code;
+					continue;
+				case _DIRECTIVE_SECTION:
+					if(block) throw new Error('The section is invalid token in block.');
+					_sections.push(_createCompileSection(token));
+					continue;
 				default: throw new Error('Invalid token to compile.');
 			}
-			_codes.push(code);
+			codes.push(code);
 		}
-		return _codes;	
+		return codes;	
 	}
 	
 	this.compile = function(content) {
 		if (content == null) return null;
 		var tokens = _parseContent(content);
 		var codes = _compileTokens(tokens);
-		return codes.join(_COMPILE_CODE_JOINER);
+		_codes = codes;
+		var result = new _view.ViewCompileResult(_inherits, _layout, codes.join(_COMPILE_CODE_JOINER));
+		if(_sections.length) result.sections = _sections;
+		return result;
 	}
 
 }
@@ -620,13 +685,9 @@ var _jHtmlViewBuilder = new JHtmlViewBuilder();
 
 
 class JHtmlCompiledView extends _view.CompiledView {
-	constructor(controllerContext, viewContent){
-		super(controllerContext, viewContent);
+	constructor(controllerContext, compileResult){ // ViewCompileResult
+		super(controllerContext, compileResult);
 		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'	
-	}
-	createViewPage(){ // ViewPage
-		var page = new _view.ViewPage(this.viewContent);
-		return page;
 	}
 }
 
@@ -643,8 +704,8 @@ class JHtmlFileViewEngine extends _view.VirtualFileViewEngine {
 	 * @returns {IView} IView : The view instance is created.
 	 */
 	createView(controllerContext, view, layout){
-		var body = _jHtmlViewBuilder.compile(this.getFullPath(controllerContext, view));
-		return new JHtmlCompiledView(controllerContext, body);		
+		var result = _jHtmlViewBuilder.compile(this.getFullPath(controllerContext, view));
+		return new JHtmlCompiledView(controllerContext, result);		
 	}	
 }
 

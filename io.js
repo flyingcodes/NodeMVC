@@ -82,11 +82,11 @@ class TextWriter {
 class StringWriter {
 	constructor(){
 		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'
-		this[_private].buffer = null;	
+		this[_private].buffer = '';	
 	}
 	write(value){
 		var buffer = this[_private].buffer;
-		this[_private].buffer = (buffer == null ? '' : buffer) + value;		
+		this[_private].buffer = buffer + value;		
 	}
 	toString(){
 		return this[_private].buffer;

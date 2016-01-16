@@ -28,6 +28,7 @@ class Controller {
 		this.viewData.model = model;
 		var result = new _action.ViewResult(name, layout, model);
 		result.viewData = this.viewData;
+		result.viewEngines = this.viewEngines;
 		return result;
 	}
 	get context() {
@@ -64,6 +65,12 @@ class Controller {
 		var context = this[_private].controllerContext;
 		if(!context) this[_private].controllerContext = context = new ControllerContext(this, this.context, this.routeData);
 		return context;
+	}
+	get viewEngines(){ // ViewEngineCollection
+		return this[_private].viewEngines || _view.ViewEngines.engines;
+	}
+	set viewEngines(value){ // value: ViewEngineCollection
+		this[_private].viewEngines = value;
 	}
 }
 

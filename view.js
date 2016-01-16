@@ -263,15 +263,72 @@ var _readFileContent = function(path) {
 	return _io.File.readContent(path, 'utf-8');
 }
 
+class ViewCompileResult {
+	constructor(inherits, layout, content){
+		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'
+		this.inherits = inherits;
+		this.layout = layout;
+		this.content = content;
+	}
+	get inherits() {
+		return this[_private].inherits;
+	}
+	set inherits(value) {
+		this[_private].inherits = value;
+	}
+	get layout() {
+		return this[_private].layout;
+	}
+	set layout(value) {
+		this[_private].layout = value;
+	}
+	get content() {
+		return this[_private].content;
+	}
+	set content(value) {
+		this[_private].content = value;
+	}
+	get sections() { // array of ViewCompileSection
+		return this[_private].sections;
+	}
+	set sections(value) { // array of ViewCompileSection
+		this[_private].sections = value;
+	}
+}
+
+class ViewCompileSection {
+	constructor(name, content) {
+		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'
+		this.name = name;
+		this.content = content;
+	}
+	get name() {
+		return this[_private].name;
+	}
+	set name(value) {
+		this[_private].name = value;
+	}
+	get content() {
+		return this[_private].content;
+	}
+	set content(value) {
+		this[_private].content = value;
+	}
+}
+
 class ViewBuilder {
 	constructor(){		
 	}
 	compile(path){
 		if(!path) return null;
 		var content = _readFileContent(path);
-		var body = this.compileContent(content);
-		console.log(body);
-		return new Function("viewPage, viewModel, viewData", body);
+		var result = this.compileContent(content), inherits = result.inherits, layout = result.layout, content = result.content, sections = result.sections;
+		console.log(content);
+		result.inherits = inherits ? new Function("return " + inherits) : null;
+		result.layout = layout ? new Function("return " + layout) : null;
+		result.content = new Function("viewPage, viewModel, viewData", content);
+		result.sections = sections ? this.createSections(sections) : null;
+		return result;
 	}
 	compileContent(content){ // override it
 		return null;
@@ -281,6 +338,15 @@ class ViewBuilder {
 		var type = _cachedViewTypes[path];
 		if(!type) _cachedViewTypes[path] = type = this.compile(path);
 		return type;	
+	}
+	createSections(sections){
+		if(!sections) return sections;
+		var length = sections.length, result = new Array(length), i = -1, section;
+		while(++i < length){
+			section = sections[i];
+			result[i] = new ViewCompileSection(section.name, new Function("viewPage, viewModel, viewData", section.content));
+		}
+		return result;
 	}
 }
 
@@ -304,7 +370,8 @@ class ViewPageExecutingBase {
 class ViewPageRenderingBase extends ViewPageExecutingBase {
 	constructor(pageContent){
 		super(pageContent);
-		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'	
+		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'
+		//this[_private].output
 	}
 	execute(){
 		var page = this.pageContent;
@@ -314,6 +381,16 @@ class ViewPageRenderingBase extends ViewPageExecutingBase {
 	}
 	renderPage(){		
 	}
+	write(value){
+		if(value == null) return;
+		this.output.write(String.is(value) ? value : (value.constructor == Object ? JSON.stringify(value) : value.toString()));
+	}
+	get layout() {
+		return this[_private].layout;
+	}
+	set layout(value) {
+		this[_private].layout = value;
+	}
 	get viewContext() {
 		return this[_private].viewContext;
 	}
@@ -321,8 +398,13 @@ class ViewPageRenderingBase extends ViewPageExecutingBase {
 		this[_private].viewContext = value;
 	}
 	get output() {
+		var output = this[_private].output;
+		if(output) return output;
 		var context = this.viewContext;
 		return context && context.writer;
+	}
+	set output(value) {
+		this[_private].output = value;
 	}
 	get model(){
 		var data = this.viewData;
@@ -343,29 +425,164 @@ class ViewPageBase extends ViewPageRenderingBase {
 		this.execute();	
 	}
 	renderPage(){		
-	}	
+	}
+	configPage(parent) {
+		
+	}
+	defineSection(name, body){
+		var sections = this.sections;
+		if(sections.contains(name)) throw new Error('The section "' + name + '" is defined.');
+		sections.set(name, body);
+	}
+	renderSection(name, required){
+		var section = this.sections.get(name);
+		if(!section) {
+			if(!required) return;
+			throw new Error('The section "' + name + '" is not defined.');
+		}
+		section.apply(this);
+	}
+	findView(view){
+		var context = this.viewContext.controllerContext, engines = context.controller.viewEngines || _viewEngines.engines;
+		var result = engines.findView(context, view, this.layoutName);
+		if(result.view) return result.view;
+		throw new Error('Cannot find the view for "' + view + '":\r\n' + result.paths.join('\r\n'));
+	}
+	get sections(){
+		var sections = this[_private].sections
+		if(!sections) this[_private].sections = sections = new _collections.Dictionary();
+		return this[_private].sections;
+	}
 }
 
-class ViewPage extends ViewPageBase {
+class ViewLayoutPage extends ViewPageBase {
 	constructor(pageContent){
 		super(pageContent);
 		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'	
 	}	
-	write(value){
-		if(value == null) return;
-		this.output.write(String.is(value) ? value : JSON.stringify(value));
+	executePageHierarchy(){
+		var page = this.contentPage, output	= new _io.StringWriter();
+		this.contentOutput = page.output = output;
+		page.execute();
+		this.execute();
 	}
+	renderContentPage() {
+		this.write(this.contentOutput.toString());	
+	}
+	renderSection(name, required){
+		var section = this.sections.get(name);
+		if(!section){
+			var page = this.contentPage;
+			if(page) section = page.sections.get(name);
+			if(!section) {
+				if(!required) return;
+				throw new Error('The section "' + name + '" is not defined.');
+			}
+		}
+		section.apply(this);
+	}	
+	get contentPage() {
+		return this[_private].contentPage;
+	}
+	set contentPage(value) {
+		this[_private].contentPage = value;
+	}
+	get contentOutput() {
+		return this[_private].contentOutput;
+	}
+	set contentOutput(value) {
+		this[_private].contentOutput = value;
+	}
+} 
+
+class ViewPage extends ViewPageBase {
+	constructor(pageContent){
+		super(pageContent);
+		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'
+		//this[_private].writer = new _io.StringWriter();
+	}
+	createLayout() {
+		var view = this.findView(this.layout);
+		if(!(view instanceof CompiledView)) throw new Error("The layout view is not instance of CompiledView.");
+		var page = view.createViewLayoutPage();
+		page.viewContext = this.viewContext;
+		page.contentPage = this;
+		this.layoutPage = page;
+	}
+	executePageHierarchy(){		
+		if(!this.layout) {
+			this.output = this.viewContext.writer;
+			return this.execute();
+		}
+		this.createLayout();
+		this.layoutPage.executePageHierarchy();
+	}
+	renderSection(name, required){
+		var section = this.sections.get(name);
+		if(!section){
+			var page = this.layoutPage;
+			if(page) section = page.sections.get(name);
+			if(!section) {
+				if(!required) return;
+				throw new Error('The section "' + name + '" is not defined.');
+			}
+		}
+		section.apply(this);
+	}
+	get layout() {
+		return this[_private].layout;
+	}
+	set layout(value) {
+		if(this.layoutPage) throw new Error("The layout page is created, can not change it.");
+		this[_private].layout = value;
+	}
+	get layoutPage(){
+		return this[_private].layoutPage;
+	}
+	set layoutPage(value){
+		this[_private].layoutPage = value;
+	}	
 }
 
 class CompiledView extends IView {
-	constructor(controllerContext, viewContent){
+	constructor(controllerContext, compileResult){ // ViewCompileResult
 		super();
 		if(!this[_private]) this[_private] = {}; // must be first in any constructor, but after at 'super()'	
 		this.controllerContext = controllerContext;
-		this.viewContent = viewContent;
+		this.compileResult = compileResult;
+	}
+	createViewLayoutPage(){ // ViewLayoutPage
+		var inherits = this.inherits; // a function which returns a type/class
+		if(inherits){
+			inherits = inherits();
+			if(!inherits.isSubclassOf(ViewLayoutPage)) throw new Error("The inherits type must be ViewLayoutPage or subclass of ViewLayoutPage.");
+		} else {
+			inherits = ViewLayoutPage;
+		}
+		var page = new inherits(this.content), layout = this.layout, sections = this.sections;
+		if(layout) throw new Error("Can not set layout.");
+		if(sections) this.defineSections(page, sections);
+		return page;
 	}
 	createViewPage(){ // ViewPage
-		
+		var inherits = this.inherits; // a function which returns a type/class
+		if(inherits){
+			inherits = inherits();
+			if(!inherits.isSubclassOf(ViewPage)) throw new Error("The inherits type must be ViewPage or subclass of ViewPage.");
+		} else {
+			inherits = ViewPage;
+		}
+		var page = new inherits(this.content), layout = this.layout, sections = this.sections;
+		if(layout) page.layout = layout.apply(page);
+		if(sections) this.defineSections(page, sections);
+		return page;
+	}
+	defineSections(page, sections) {
+		if(!sections) return;
+		for(var i = 0, length = sections.length, section; i < length; i++){
+			section = sections[i];
+			page.defineSection(section.name, section.content);
+		}
 	}
 	/**
 	 * Render the view into writer.
@@ -383,11 +600,43 @@ class CompiledView extends IView {
 	set controllerContext(value){
 		this[_private].controllerContext = value;
 	}
-	get viewContent(){
-		return this[_private].viewContent;
+	get compileResult(){
+		return this[_private].compileResult;
 	}	
-	set viewContent(value){
-		this[_private].viewContent = value;
+	set compileResult(value){
+		this[_private].compileResult = value;
+	}
+	get inherits() {
+		var value = this[_private].inherits;
+		if(value != null) return value 
+		return this[_private].compileResult.inherits;
+	}
+	set inherits(value){
+		this[_private].inherits = value;
+	}
+	get layout() {
+		var value = this[_private].layout;
+		if(value != null) return value 
+		return this[_private].compileResult.layout;
+	}
+	set layout(value){
+		this[_private].layout = value;
+	}
+	get content(){
+		var value = this[_private].content;
+		if(value != null) return value 
+		return this[_private].compileResult.content;
+	}	
+	set content(value){
+		this[_private].content = value;
+	}
+	get sections(){
+		var value = this[_private].sections;
+		if(value != null) return value 
+		return this[_private].compileResult.sections;
+	}	
+	set sections(value){
+		this[_private].sections = value;
 	}
 }
 
@@ -395,6 +644,8 @@ class CompiledView extends IView {
 //_viewEngines.add(new JHtmlFileViewEngine());
 
 
+exports.ViewCompileResult = ViewCompileResult;
+exports.ViewCompileSection = ViewCompileSection;
 exports.CompiledView = CompiledView;
 exports.ViewBuilder = ViewBuilder;
 exports.ViewContext = ViewContext;
